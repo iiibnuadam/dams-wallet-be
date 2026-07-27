@@ -12,7 +12,6 @@ var handler http.Handler
 
 func init() {
 	config.Load()
-	db.Connect()
 	handler = router.Setup()
 }
 
