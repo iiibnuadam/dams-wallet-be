@@ -34,7 +34,14 @@ func Setup() *chi.Mux {
 		MaxAge:           300,
 	}))
 
-	// Health check
+	// Root & Health check
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		response.Success(w, map[string]string{
+			"app":    "Dams Wallet API",
+			"status": "running",
+			"docs":   "Check /api/health for system status",
+		})
+	})
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, map[string]string{"status": "ok"})
 	})
