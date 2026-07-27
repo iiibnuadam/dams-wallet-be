@@ -23,11 +23,11 @@ func Connect() *mongo.Client {
 
 		c, err := mongo.Connect(ctx, options.Client().ApplyURI(config.App.MongoURI))
 		if err != nil {
-			log.Fatalf("MongoDB connect error: %v", err)
+			log.Panicf("MongoDB connect error: %v", err)
 		}
 
 		if err = c.Ping(ctx, nil); err != nil {
-			log.Fatalf("MongoDB ping error: %v", err)
+			log.Panicf("MongoDB ping error: %v", err)
 		}
 
 		log.Println("Connected to MongoDB")
