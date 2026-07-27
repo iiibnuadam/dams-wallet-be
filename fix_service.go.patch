@@ -1,0 +1,41 @@
+--- internal/dashboard/service.go
++++ internal/dashboard/service.go
+@@ -16,13 +16,30 @@
+ 	Value float64 `json:"value"`
+ }
+ 
++type MonthlyTrendItem struct {
++	Label    string  `json:"label"`
++	Income   float64 `json:"income"`
++	Expense  float64 `json:"expense"`
++}
++
++type FixedVsVariable struct {
++	Fixed    float64 `json:"fixed"`
++	Variable float64 `json:"variable"`
++	Ratio    float64 `json:"ratio"`
++}
++
++type LiabilityItem struct {
++	// We'll skip liability items for now if not implemented, but add structure
++}
++
+ type Summary struct {
+-	NetWorth     float64     `json:"netWorth"`
+-	TotalIncome  float64     `json:"totalIncome"`
+-	TotalExpense float64     `json:"totalExpense"`
+-	Net          float64     `json:"net"`
+-	Period       string      `json:"period"`
+-	DailyTrend   []TrendItem `json:"dailyTrend"`
+-	MonthlyTrend []TrendItem `json:"monthlyTrend"`
++	NetWorth        float64             `json:"netWorth"`
++	TotalIncome     float64             `json:"totalIncome"`
++	TotalExpense    float64             `json:"totalExpense"`
++	Net             float64             `json:"net"`
++	Period          string              `json:"period"`
++	DailyTrend      []TrendItem         `json:"dailyTrend"`
++	MonthlyTrend    []MonthlyTrendItem  `json:"monthlyTrend"`
++	FixedVsVariable FixedVsVariable     `json:"fixedVsVariable"`
+ }
+ 
+ func GetSummary(userID primitive.ObjectID, period string) (*Summary, error) {

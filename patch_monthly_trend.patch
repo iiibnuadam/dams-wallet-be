@@ -1,0 +1,100 @@
+--- internal/dashboard/service.go
++++ internal/dashboard/service.go
+@@ -176,26 +176,82 @@
+ 		}}},
+ 		{{Key: "$group", Value: bson.D{
+ 			{Key: "_id", Value: bson.D{{Key: "$dateToString", Value: bson.D{{Key: "format", Value: "%Y-%m"}, {Key: "date", Value: "$date"}}}}},
+-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
++			{Key: "income", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
++				bson.D{{Key: "$eq", Value: bson.A{"$type", "INCOME"}}}, "$amount", 0,
++			}}}}}},
++			{Key: "expense", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
++				bson.D{{Key: "$eq", Value: bson.A{"$type", "EXPENSE"}}}, "$amount", 0,
++			}}}}}},
+ 		}}},
+ 		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+ 	})
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	var monthlyTrend []TrendItem
++	var monthlyTrend []MonthlyTrendItem
+ 	var monthlyRaw []struct {
+-		ID    string  `bson:"_id"`
+-		Total float64 `bson:"total"`
++		ID      string  `bson:"_id"`
++		Income  float64 `bson:"income"`
++		Expense float64 `bson:"expense"`
+ 	}
+ 	if err = monthlyAgg.All(ctx, &monthlyRaw); err != nil {
+ 		return nil, err
+ 	}
+ 	for _, m := range monthlyRaw {
+-		monthlyTrend = append(monthlyTrend, TrendItem{Label: m.ID, Value: m.Total})
++		monthlyTrend = append(monthlyTrend, MonthlyTrendItem{
++			Label:   m.ID,
++			Income:  m.Income,
++			Expense: m.Expense,
++		})
+ 	}
+ 
++	// Fixed vs Variable (for current month)
++	fvAgg, err := db.Col("transactions").Aggregate(ctx, mongo.Pipeline{
++		{{Key: "$match", Value: bson.M{
++			"wallet":    bson.M{"$in": walletIDs},
++			"date":      bson.M{"$gte": startDate, "$lte": endDate},
++			"isDeleted": false,
++			"type":      "EXPENSE",
++		}}},
++		{{Key: "$lookup", Value: bson.D{
++			{Key: "from", Value: "categories"},
++			{Key: "localField", Value: "category"},
++			{Key: "foreignField", Value: "_id"},
++			{Key: "as", Value: "cat"},
++		}}},
++		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$cat"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
++		{{Key: "$group", Value: bson.D{
++			{Key: "_id", Value: "$cat.flexibility"},
++			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
++		}}},
++	})
++	
++	fixedVsVariable := FixedVsVariable{}
++	if err == nil {
++		var fvRaw []struct {
++			ID    string  `bson:"_id"`
++			Total float64 `bson:"total"`
++		}
++		if fvAgg.All(ctx, &fvRaw) == nil {
++			for _, item := range fvRaw {
++				if item.ID == "FIXED" {
++					fixedVsVariable.Fixed = item.Total
++				} else if item.ID == "VARIABLE" {
++					fixedVsVariable.Variable = item.Total
++				}
++			}
++			totalFV := fixedVsVariable.Fixed + fixedVsVariable.Variable
++			if totalFV > 0 {
++				fixedVsVariable.Ratio = (fixedVsVariable.Fixed / totalFV) * 100
++			}
++		}
++	}
++
+ 	return &Summary{
+-		NetWorth:     netWorth,
+-		TotalIncome:  totalIncome,
+-		TotalExpense: totalExpense,
+-		Net:          totalIncome - totalExpense,
+-		Period:       period,
+-		DailyTrend:   dailyTrend,
+-		MonthlyTrend: monthlyTrend,
++		NetWorth:        netWorth,
++		TotalIncome:     totalIncome,
++		TotalExpense:    totalExpense,
++		Net:             totalIncome - totalExpense,
++		Period:          period,
++		DailyTrend:      dailyTrend,
++		MonthlyTrend:    monthlyTrend,
++		FixedVsVariable: fixedVsVariable,
+ 	}, nil
+ }
