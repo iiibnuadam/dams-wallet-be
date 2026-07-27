@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/ibnuadam/dams-wallet-backend/config"
-	"github.com/ibnuadam/dams-wallet-backend/pkg/db"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/router"
 )
 
