@@ -46,6 +46,27 @@ func HandleCreate(w http.ResponseWriter, r *http.Request) {
 	response.Created(w, map[string]string{"_id": id.Hex()})
 }
 
+func HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
+	var reqs []CreateTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&reqs); err != nil {
+		response.BadRequest(w, "invalid request body array")
+		return
+	}
+	
+	if len(reqs) == 0 {
+		response.Success(w, map[string]interface{}{"inserted": 0})
+		return
+	}
+
+	userID, _ := primitive.ObjectIDFromHex(mw.GetUserID(r))
+	count, err := CreateBatchTransactions(reqs, userID)
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	response.Created(w, map[string]interface{}{"inserted": count})
+}
+
 func HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var update bson.M
