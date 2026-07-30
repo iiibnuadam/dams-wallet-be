@@ -220,6 +220,7 @@ func GetBudgetOverview(userID primitive.ObjectID, period string) (*BudgetOvervie
 		}
 
 		remaining := math.Max(0, env.Limit-spent)
+		overage := math.Max(0, spent-env.Limit)
 		pct := 0.0
 		if env.Limit > 0 {
 			pct = math.Min(100, (spent/env.Limit)*100)
@@ -231,7 +232,7 @@ func GetBudgetOverview(userID primitive.ObjectID, period string) (*BudgetOvervie
 		totalBudget += env.Limit
 		envelopes = append(envelopes, EnvelopeOverview{
 			Name: env.Name, Icon: env.Icon, Color: env.Color,
-			Limit: env.Limit, Spent: spent, Remaining: remaining,
+			Limit: env.Limit, Spent: spent, Remaining: remaining, Overage: overage,
 			Percent: pct, SafeToSpendToday: safe,
 			CategoryIDs: env.CategoryIDs,
 		})

@@ -30,10 +30,18 @@ type Goal struct {
 	UpdatedAt   time.Time          `bson:"updatedAt" json:"updatedAt"`
 }
 
+type GoalPacing struct {
+	ExpectedProgressPercent float64 `json:"expectedProgressPercent"`
+	ActualProgressPercent   float64 `json:"actualProgressPercent"`
+	IsFallingBehind         bool    `json:"isFallingBehind"`
+	MonthsRemaining         int     `json:"monthsRemaining"`
+}
+
 type GoalWithStats struct {
 	Goal
-	TotalEstimated float64 `json:"totalEstimated"`
-	TotalActual    float64 `json:"totalActual"`
+	TotalEstimated float64    `json:"totalEstimated"`
+	TotalActual    float64    `json:"totalActual"`
+	Pacing         GoalPacing `json:"pacing"`
 }
 
 type GoalItem struct {

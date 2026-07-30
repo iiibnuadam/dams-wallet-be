@@ -2,6 +2,7 @@ package goals
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/ibnuadam/dams-wallet-backend/internal/transactions"
@@ -59,9 +60,43 @@ func GetGoals(owner string) ([]GoalWithStats, error) {
 			totalActual = txResult[0].Total
 		}
 
-		results = append(results, GoalWithStats{Goal: g, TotalEstimated: totalEst, TotalActual: totalActual})
+		results = append(results, GoalWithStats{
+			Goal: g, TotalEstimated: totalEst, TotalActual: totalActual,
+			Pacing: computePacing(g, totalEst, totalActual),
+		})
 	}
 	return results, nil
+}
+
+const goalFallingBehindThresholdPct = 10.0
+
+// computePacing compares elapsed-time% (CreatedAt -> TargetDate) against
+// Rupiah-progress% (TotalActual/TotalEstimated) to flag goals losing pace.
+func computePacing(g Goal, totalEst, totalActual float64) GoalPacing {
+	now := time.Now()
+	totalDuration := g.TargetDate.Sub(g.CreatedAt)
+	monthsRemaining := int(time.Until(g.TargetDate).Hours() / 24 / 30)
+
+	if g.IsCompleted || totalDuration <= 0 {
+		return GoalPacing{MonthsRemaining: monthsRemaining}
+	}
+
+	expectedPct := 0.0
+	if elapsed := now.Sub(g.CreatedAt); elapsed > 0 {
+		expectedPct = math.Min(100, (float64(elapsed)/float64(totalDuration))*100)
+	}
+
+	actualPct := 0.0
+	if totalEst > 0 {
+		actualPct = math.Min(100, (totalActual/totalEst)*100)
+	}
+
+	return GoalPacing{
+		ExpectedProgressPercent: expectedPct,
+		ActualProgressPercent:   actualPct,
+		IsFallingBehind:         now.Before(g.TargetDate) && (expectedPct-actualPct) > goalFallingBehindThresholdPct,
+		MonthsRemaining:         monthsRemaining,
+	}
 }
 
 func CreateGoal(req CreateGoalRequest, ownerID primitive.ObjectID) (*Goal, error) {

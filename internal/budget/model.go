@@ -33,6 +33,7 @@ type EnvelopeOverview struct {
 	Limit           float64  `json:"limit"`
 	Spent           float64  `json:"spent"`
 	Remaining       float64  `json:"remaining"`
+	Overage         float64  `json:"overage"`
 	Percent         float64  `json:"percent"`
 	SafeToSpendToday float64 `json:"safeToSpendToday"`
 }

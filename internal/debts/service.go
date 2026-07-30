@@ -164,6 +164,26 @@ func SettleDebt(id string, walletID string, ownerID primitive.ObjectID) error {
 	return err
 }
 
+const dueSoonDays = 14
+const staleAfterDays = 90
+
+// ClassifyUrgency flags debts worth surfacing as talking points. The Debt
+// model has no partial-payment/remaining-balance field (binary ACTIVE/PAID,
+// single Amount), so this is date-based urgency rather than a payoff-progress
+// signal: due soon, or stale (long-ACTIVE with no due date set).
+func ClassifyUrgency(d Debt) (isDueSoon bool, daysUntilDue int, isStale bool) {
+	if d.Status != "ACTIVE" {
+		return false, 0, false
+	}
+	if d.DueDate != nil {
+		daysUntilDue = int(time.Until(*d.DueDate).Hours() / 24)
+		isDueSoon = daysUntilDue >= 0 && daysUntilDue <= dueSoonDays
+		return isDueSoon, daysUntilDue, false
+	}
+	isStale = time.Since(d.LoanDate).Hours()/24 > staleAfterDays
+	return false, 0, isStale
+}
+
 func resolveUsername(username string) (primitive.ObjectID, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

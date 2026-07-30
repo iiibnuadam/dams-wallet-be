@@ -12,6 +12,7 @@ import (
 	"github.com/ibnuadam/dams-wallet-backend/internal/dashboard"
 	"github.com/ibnuadam/dams-wallet-backend/internal/debts"
 	"github.com/ibnuadam/dams-wallet-backend/internal/goals"
+	"github.com/ibnuadam/dams-wallet-backend/internal/insights"
 	"github.com/ibnuadam/dams-wallet-backend/internal/routines"
 	"github.com/ibnuadam/dams-wallet-backend/internal/transactions"
 	"github.com/ibnuadam/dams-wallet-backend/internal/wallets"
@@ -83,6 +84,9 @@ func Setup() *chi.Mux {
 		})
 		r.Route("/api/dashboard", func(r chi.Router) {
 			dashboard.Routes(r)
+		})
+		r.Route("/api/insights", func(r chi.Router) {
+			insights.Routes(r)
 		})
 	})
 
