@@ -23,17 +23,25 @@ func Connect() *mongo.Client {
 
 		c, err := mongo.Connect(ctx, options.Client().ApplyURI(config.App.MongoURI))
 		if err != nil {
-			log.Panicf("MongoDB connect error: %v", err)
+			log.Fatalf("MongoDB connect error: %v", err)
 		}
 
 		if err = c.Ping(ctx, nil); err != nil {
-			log.Panicf("MongoDB ping error: %v", err)
+			log.Fatalf("MongoDB ping error: %v", err)
 		}
 
 		log.Println("Connected to MongoDB")
 		client = c
 	})
 	return client
+}
+
+// Disconnect closes the MongoDB connection. Call during graceful shutdown.
+func Disconnect(ctx context.Context) error {
+	if client == nil {
+		return nil
+	}
+	return client.Disconnect(ctx)
 }
 
 func GetDB() *mongo.Database {

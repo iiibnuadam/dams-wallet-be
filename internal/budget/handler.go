@@ -2,12 +2,11 @@ package budget
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
-	mw "github.com/ibnuadam/dams-wallet-backend/pkg/middleware"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/response"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func HandleOverview(w http.ResponseWriter, r *http.Request) {
@@ -16,8 +15,7 @@ func HandleOverview(w http.ResponseWriter, r *http.Request) {
 		period = time.Now().Format("2006-01")
 	}
 
-	userID, _ := primitive.ObjectIDFromHex(mw.GetUserID(r))
-	overview, err := GetBudgetOverview(userID, period)
+	overview, err := GetBudgetOverview(period)
 	if err != nil {
 		response.InternalError(w, err.Error())
 		return
@@ -45,8 +43,11 @@ func HandleUpsertEnvelopes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _ := primitive.ObjectIDFromHex(mw.GetUserID(r))
-	if err := UpsertEnvelopes(userID, req); err != nil {
+	if err := UpsertEnvelopes(req); err != nil {
+		if errors.Is(err, ErrDuplicateEnvelopeItem) {
+			response.BadRequest(w, err.Error())
+			return
+		}
 		response.InternalError(w, err.Error())
 		return
 	}

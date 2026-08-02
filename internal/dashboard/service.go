@@ -19,9 +19,9 @@ type DailyTrendItem struct {
 }
 
 type MonthlyTrendItem struct {
-	Label    string  `json:"label"`
-	Income   float64 `json:"income"`
-	Expense  float64 `json:"expense"`
+	Label   string  `json:"label"`
+	Income  float64 `json:"income"`
+	Expense float64 `json:"expense"`
 }
 
 type FixedVsVariable struct {
@@ -35,14 +35,15 @@ type LiabilityItem struct {
 }
 
 type Summary struct {
-	NetWorth        float64             `json:"netWorth"`
-	TotalIncome     float64             `json:"totalIncome"`
-	TotalExpense    float64             `json:"totalExpense"`
-	Net             float64             `json:"net"`
-	Period          string              `json:"period"`
-	DailyTrend      []DailyTrendItem    `json:"dailyTrend"`
-	MonthlyTrend    []MonthlyTrendItem  `json:"monthlyTrend"`
-	FixedVsVariable FixedVsVariable     `json:"fixedVsVariable"`
+	NetWorth         float64            `json:"netWorth"`
+	TotalIncome      float64            `json:"totalIncome"`
+	TotalFixedIncome float64            `json:"totalFixedIncome"`
+	TotalExpense     float64            `json:"totalExpense"`
+	Net              float64            `json:"net"`
+	Period           string             `json:"period"`
+	DailyTrend       []DailyTrendItem   `json:"dailyTrend"`
+	MonthlyTrend     []MonthlyTrendItem `json:"monthlyTrend"`
+	FixedVsVariable  FixedVsVariable    `json:"fixedVsVariable"`
 }
 
 func GetSummary(userID primitive.ObjectID, period string, startDateStr string, endDateStr string, ownerParam string, walletIdParam string) (*Summary, error) {
@@ -54,7 +55,7 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 	}
 
 	filter := bson.M{"isDeleted": false}
-	
+
 	if ownerParam == "" {
 		filter["owner"] = userID
 	} else if strings.ToUpper(ownerParam) != "ALL" {
@@ -67,7 +68,7 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 		}
 	}
 	// If ownerParam is "ALL", we don't set "owner" filter so it fetches all wallets.
-	
+
 	if walletIdParam != "" {
 		if oid, err := primitive.ObjectIDFromHex(walletIdParam); err == nil {
 			filter["_id"] = oid
@@ -77,7 +78,9 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 	if err != nil {
 		return nil, err
 	}
-	var wallets []struct{ ID primitive.ObjectID `bson:"_id"` }
+	var wallets []struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
 	if err = wCursor.All(ctx, &wallets); err != nil {
 		return nil, err
 	}
@@ -88,7 +91,7 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 
 	// Parse period or explicit date range
 	var startDate, endDate time.Time
-	
+
 	if startDateStr != "" && endDateStr != "" {
 		// Use explicit dates (e.g. 2026-01-31T17:00:00.000Z)
 		t1, err1 := time.Parse(time.RFC3339, startDateStr)
@@ -109,39 +112,107 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 		endDate = startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
 	}
 
-	// Income/Expense for this period
-	aggCursor, err := db.Col("transactions").Aggregate(ctx, mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{
-			"wallet":    bson.M{"$in": walletIDs},
-			"date":      bson.M{"$gte": startDate, "$lte": endDate},
-			"isDeleted": false,
-			"status":    bson.M{"$ne": "PENDING"},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "totalIncome", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$eq", Value: bson.A{"$type", "INCOME"}}}, "$amount", 0,
-			}}}}}},
-			{Key: "totalExpense", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$eq", Value: bson.A{"$type", "EXPENSE"}}}, "$amount", 0,
-			}}}}}},
-		}}},
+	// Wallet -> owner lookup covering every wallet (not just the scoped
+	// ones) so a TRANSFER's counterparty owner can be resolved even when it
+	// falls outside walletIDs.
+	allWalletsCursor, err := db.Col("wallets").Find(ctx, bson.M{"isDeleted": false}, options.Find().SetProjection(bson.M{"_id": 1, "owner": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var allWalletDocs []struct {
+		ID    primitive.ObjectID `bson:"_id"`
+		Owner primitive.ObjectID `bson:"owner"`
+	}
+	if err := allWalletsCursor.All(ctx, &allWalletDocs); err != nil {
+		return nil, err
+	}
+	ownerByWallet := make(map[primitive.ObjectID]primitive.ObjectID, len(allWalletDocs))
+	for _, w := range allWalletDocs {
+		ownerByWallet[w.ID] = w.Owner
+	}
+	inScope := make(map[primitive.ObjectID]bool, len(walletIDs))
+	for _, id := range walletIDs {
+		inScope[id] = true
+	}
+
+	// Category -> flexibility lookup, used to split INCOME into a "fixed"
+	// (reliable, e.g. salary) subset for borrowing-power calculations that
+	// shouldn't be inflated by one-off bonus/freelance income.
+	catCursor, err := db.Col("categories").Find(ctx, bson.M{"isDeleted": false}, options.Find().SetProjection(bson.M{"_id": 1, "flexibility": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var catDocs []struct {
+		ID          primitive.ObjectID `bson:"_id"`
+		Flexibility string             `bson:"flexibility"`
+	}
+	if err := catCursor.All(ctx, &catDocs); err != nil {
+		return nil, err
+	}
+	categoryFlexByID := make(map[primitive.ObjectID]string, len(catDocs))
+	for _, c := range catDocs {
+		categoryFlexByID[c.ID] = c.Flexibility
+	}
+
+	// Income/Expense for this period. INCOME/EXPENSE transactions count
+	// normally. TRANSFER only counts when it crosses between wallets with
+	// different owners -- an expense for the sender, income for the
+	// receiver -- since that's real money leaving one person's control.
+	// A transfer between two wallets owned by the same person is just
+	// internal reallocation and is never counted as either.
+	txCursor, err := db.Col("transactions").Find(ctx, bson.M{
+		"$or": []bson.M{
+			{"wallet": bson.M{"$in": walletIDs}},
+			{"targetWallet": bson.M{"$in": walletIDs}},
+		},
+		"date":      bson.M{"$gte": startDate, "$lte": endDate},
+		"isDeleted": false,
+		"status":    bson.M{"$ne": "PENDING"},
 	})
 	if err != nil {
 		return nil, err
 	}
-	var aggResult []struct {
-		TotalIncome  float64 `bson:"totalIncome"`
-		TotalExpense float64 `bson:"totalExpense"`
+	var txs []struct {
+		Type         string              `bson:"type"`
+		Amount       float64             `bson:"amount"`
+		Wallet       primitive.ObjectID  `bson:"wallet"`
+		TargetWallet *primitive.ObjectID `bson:"targetWallet,omitempty"`
+		Category     *primitive.ObjectID `bson:"category,omitempty"`
 	}
-	if err = aggCursor.All(ctx, &aggResult); err != nil {
+	if err := txCursor.All(ctx, &txs); err != nil {
 		return nil, err
 	}
 
-	totalIncome, totalExpense := 0.0, 0.0
-	if len(aggResult) > 0 {
-		totalIncome = aggResult[0].TotalIncome
-		totalExpense = aggResult[0].TotalExpense
+	totalIncome, totalFixedIncome, totalExpense := 0.0, 0.0, 0.0
+	for _, tx := range txs {
+		switch tx.Type {
+		case "INCOME":
+			if inScope[tx.Wallet] {
+				totalIncome += tx.Amount
+				if tx.Category != nil && categoryFlexByID[*tx.Category] == "FIXED" {
+					totalFixedIncome += tx.Amount
+				}
+			}
+		case "EXPENSE":
+			if inScope[tx.Wallet] {
+				totalExpense += tx.Amount
+			}
+		case "TRANSFER":
+			if tx.TargetWallet == nil {
+				continue
+			}
+			sourceOwner, hasSourceOwner := ownerByWallet[tx.Wallet]
+			targetOwner, hasTargetOwner := ownerByWallet[*tx.TargetWallet]
+			if !hasSourceOwner || !hasTargetOwner || sourceOwner == targetOwner {
+				continue // same-owner reallocation, or an unresolvable wallet -- not counted
+			}
+			if inScope[tx.Wallet] {
+				totalExpense += tx.Amount
+			}
+			if inScope[*tx.TargetWallet] {
+				totalIncome += tx.Amount
+			}
+		}
 	}
 
 	// Net worth: sum of all wallet current balances (initial + transactions)
@@ -177,7 +248,9 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 	if err != nil {
 		return nil, err
 	}
-	var nwResult []struct{ NetWorth float64 `bson:"netWorth"` }
+	var nwResult []struct {
+		NetWorth float64 `bson:"netWorth"`
+	}
 	if err = netWorthAgg.All(ctx, &nwResult); err != nil {
 		return nil, err
 	}
@@ -283,7 +356,7 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
 		}}},
 	})
-	
+
 	fixedVsVariable := FixedVsVariable{}
 	if err == nil {
 		var fvRaw []struct {
@@ -306,17 +379,17 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 	}
 
 	return &Summary{
-		NetWorth:        netWorth,
-		TotalIncome:     totalIncome,
-		TotalExpense:    totalExpense,
-		Net:             totalIncome - totalExpense,
-		Period:          period,
-		DailyTrend:      dailyTrend,
-		MonthlyTrend:    monthlyTrend,
-		FixedVsVariable: fixedVsVariable,
+		NetWorth:         netWorth,
+		TotalIncome:      totalIncome,
+		TotalFixedIncome: totalFixedIncome,
+		TotalExpense:     totalExpense,
+		Net:              totalIncome - totalExpense,
+		Period:           period,
+		DailyTrend:       dailyTrend,
+		MonthlyTrend:     monthlyTrend,
+		FixedVsVariable:  fixedVsVariable,
 	}, nil
 }
-
 
 func resolveUsername(username string) (primitive.ObjectID, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

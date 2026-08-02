@@ -224,36 +224,44 @@ func LiabilitySignals(items []dashboard.LiabilityProgress) []Signal {
 }
 
 // NetWorthSignals flags a notably low or high savings rate for the period.
-func NetWorthSignals(macro dashboard.MacroStats) []Signal {
+// NetWorthSignals takes totalIncome/totalExpense from dashboard.GetSummary
+// (not dashboard.GetFinancialHealth's MacroStats) so the figures shown here
+// always match what "Real Expense"/"Total Expense" show elsewhere in the
+// app -- GetFinancialHealth's version counts out-of-scope transfers and
+// PENDING transactions as spend (correct for its Sankey/cash-flow chart,
+// but confusing when quoted next to a "pengeluaran" figure that excludes
+// both).
+func NetWorthSignals(totalIncome, totalExpense float64) []Signal {
 	var signals []Signal
-	if macro.TotalIncome <= 0 {
+	if totalIncome <= 0 {
 		return signals
 	}
+	savingsRate := ((totalIncome - totalExpense) / totalIncome) * 100
 	switch {
-	case macro.SavingsRate < savingsRateLowThreshold:
+	case savingsRate < savingsRateLowThreshold:
 		signals = append(signals, Signal{
 			ID:       "networth.savings_rate.negative",
 			Category: CategoryNetWorth,
 			Severity: SeverityWarning,
 			Title:    "Pengeluaran melebihi pemasukan",
 			Message: fmt.Sprintf("Pengeluaran periode ini (%s) melebihi pemasukan (%s), savings rate %.0f%%.",
-				formatRupiah(macro.TotalExpense), formatRupiah(macro.TotalIncome), macro.SavingsRate),
-			Value: fmt.Sprintf("%.0f%%", macro.SavingsRate),
+				formatRupiah(totalExpense), formatRupiah(totalIncome), savingsRate),
+			Value: fmt.Sprintf("%.0f%%", savingsRate),
 			Facts: map[string]interface{}{
-				"totalIncome": macro.TotalIncome, "totalExpense": macro.TotalExpense, "savingsRate": macro.SavingsRate,
+				"totalIncome": totalIncome, "totalExpense": totalExpense, "savingsRate": savingsRate,
 			},
 		})
-	case macro.SavingsRate >= savingsRateHighThreshold:
+	case savingsRate >= savingsRateHighThreshold:
 		signals = append(signals, Signal{
 			ID:       "networth.savings_rate.strong",
 			Category: CategoryNetWorth,
 			Severity: SeverityPositive,
 			Title:    "Savings rate cukup sehat",
 			Message: fmt.Sprintf("Savings rate periode ini %.0f%% -- pemasukan %s, pengeluaran %s.",
-				macro.SavingsRate, formatRupiah(macro.TotalIncome), formatRupiah(macro.TotalExpense)),
-			Value: fmt.Sprintf("%.0f%%", macro.SavingsRate),
+				savingsRate, formatRupiah(totalIncome), formatRupiah(totalExpense)),
+			Value: fmt.Sprintf("%.0f%%", savingsRate),
 			Facts: map[string]interface{}{
-				"totalIncome": macro.TotalIncome, "totalExpense": macro.TotalExpense, "savingsRate": macro.SavingsRate,
+				"totalIncome": totalIncome, "totalExpense": totalExpense, "savingsRate": savingsRate,
 			},
 		})
 	}
@@ -264,21 +272,25 @@ func NetWorthSignals(macro dashboard.MacroStats) []Signal {
 // for the period, regardless of whether they're extreme -- answers
 // "berapa pemasukan/pengeluaran/tabungan bulan ini" directly instead of
 // only flagging when something is unusually good or bad.
-func MonthlySummarySignal(macro dashboard.MacroStats) []Signal {
-	if macro.TotalIncome <= 0 && macro.TotalExpense <= 0 {
+func MonthlySummarySignal(totalIncome, totalExpense float64) []Signal {
+	if totalIncome <= 0 && totalExpense <= 0 {
 		return nil
 	}
-	net := macro.TotalIncome - macro.TotalExpense
+	net := totalIncome - totalExpense
+	savingsRate := 0.0
+	if totalIncome > 0 {
+		savingsRate = (net / totalIncome) * 100
+	}
 	return []Signal{{
 		ID:       "networth.monthly_summary",
 		Category: CategoryNetWorth,
 		Severity: SeverityNeutral,
 		Title:    "Ringkasan Bulan Ini",
 		Message: fmt.Sprintf("Pemasukan %s, pengeluaran %s, sisa (tabungan) %s.",
-			formatRupiah(macro.TotalIncome), formatRupiah(macro.TotalExpense), formatRupiah(net)),
+			formatRupiah(totalIncome), formatRupiah(totalExpense), formatRupiah(net)),
 		Value: formatRupiah(net),
 		Facts: map[string]interface{}{
-			"totalIncome": macro.TotalIncome, "totalExpense": macro.TotalExpense, "net": net, "savingsRate": macro.SavingsRate,
+			"totalIncome": totalIncome, "totalExpense": totalExpense, "net": net, "savingsRate": savingsRate,
 		},
 	}}
 }
@@ -315,24 +327,37 @@ func FixedVsVariableSignal(fv dashboard.FixedVsVariable) []Signal {
 
 // BorrowingPowerSignal estimates safe additional monthly debt capacity:
 // income * 35% (a conventional safe debt-to-income ceiling) minus what's
-// already committed to fixed costs.
-func BorrowingPowerSignal(macro dashboard.MacroStats, fv dashboard.FixedVsVariable) []Signal {
-	if macro.TotalIncome <= 0 {
+// already committed to fixed costs. Prefers income from categories tagged
+// "FIXED" (e.g. salary) over gross income, so the ceiling isn't inflated by
+// one-off bonus/freelance income that might not repeat next month. Falls
+// back to gross income if nothing is tagged fixed yet.
+func BorrowingPowerSignal(totalIncome, totalFixedIncome float64, fv dashboard.FixedVsVariable) []Signal {
+	if totalIncome <= 0 {
 		return nil
 	}
-	maxSafeInstallment := macro.TotalIncome * safeDebtRatio
+	incomeBase := totalFixedIncome
+	usingFixedOnly := incomeBase > 0
+	if !usingFixedOnly {
+		incomeBase = totalIncome
+	}
+	basisLabel := "pemasukan"
+	if usingFixedOnly {
+		basisLabel = "pemasukan tetap"
+	}
+
+	maxSafeInstallment := incomeBase * safeDebtRatio
 	availableCapacity := maxSafeInstallment - fv.Fixed
 
 	severity := SeverityPositive
 	title := "Masih ada ruang buat cicilan baru"
-	message := fmt.Sprintf("Batas cicilan bulanan yang aman (maks 35%% dari pemasukan) sekitar %s, dan %s masih tersisa setelah biaya tetap.",
-		formatRupiah(maxSafeInstallment), formatRupiah(availableCapacity))
+	message := fmt.Sprintf("Batas cicilan bulanan yang aman (maks 35%% dari %s) sekitar %s, dan %s masih tersisa setelah biaya tetap.",
+		basisLabel, formatRupiah(maxSafeInstallment), formatRupiah(availableCapacity))
 	value := formatRupiah(availableCapacity) + "/bln"
 	if availableCapacity <= 0 {
 		severity = SeverityWarning
 		title = "Sudah lewat batas aman utang"
-		message = fmt.Sprintf("Biaya tetap kamu (%s) sudah melebihi batas cicilan aman (35%% dari pemasukan, sekitar %s). Sebaiknya hindari cicilan/utang baru dulu.",
-			formatRupiah(fv.Fixed), formatRupiah(maxSafeInstallment))
+		message = fmt.Sprintf("Biaya tetap kamu (%s) sudah melebihi batas cicilan aman (35%% dari %s, sekitar %s). Sebaiknya hindari cicilan/utang baru dulu.",
+			formatRupiah(fv.Fixed), basisLabel, formatRupiah(maxSafeInstallment))
 		value = "Kapasitas maksimal"
 	}
 	return []Signal{{
@@ -343,7 +368,7 @@ func BorrowingPowerSignal(macro dashboard.MacroStats, fv dashboard.FixedVsVariab
 		Message:  message,
 		Value:    value,
 		Facts: map[string]interface{}{
-			"totalIncome": macro.TotalIncome, "fixedCost": fv.Fixed,
+			"totalIncome": totalIncome, "totalFixedIncome": totalFixedIncome, "fixedCost": fv.Fixed,
 			"maxSafeInstallment": maxSafeInstallment, "availableCapacity": availableCapacity,
 		},
 	}}

@@ -32,11 +32,11 @@ func previousPeriod(period string) string {
 // financial-health for the given period. Every signal's Narrative starts
 // equal to its Message -- a valid rule-authored fallback on its own.
 func buildSignals(userID primitive.ObjectID, period, owner string) ([]Signal, error) {
-	budgetOverview, err := budget.GetBudgetOverview(userID, period)
+	budgetOverview, err := budget.GetBudgetOverview(period)
 	if err != nil {
 		return nil, err
 	}
-	prevBudgetOverview, _ := budget.GetBudgetOverview(userID, previousPeriod(period))
+	prevBudgetOverview, _ := budget.GetBudgetOverview(previousPeriod(period))
 
 	goalList, err := goals.GetGoals(owner)
 	if err != nil {
@@ -55,16 +55,27 @@ func buildSignals(userID primitive.ObjectID, period, owner string) ([]Signal, er
 		return nil, err
 	}
 
+	// dashboard.GetSummary is the same source as the "Real Expense"/"Total
+	// Expense" cards shown elsewhere in the app: it excludes PENDING
+	// transactions and never counts transfers as spend. GetFinancialHealth's
+	// MacroStats differs on both counts (by design, for its Sankey/cash-flow
+	// chart) -- using it for income/expense here would show a "pengeluaran"
+	// figure that silently disagrees with the rest of the UI.
+	summary, err := dashboard.GetSummary(userID, period, "", "", owner, "")
+	if err != nil {
+		return nil, err
+	}
+
 	var signals []Signal
 	signals = append(signals, BudgetSignals(budgetOverview)...)
 	signals = append(signals, SpendingDeltaSignals(budgetOverview, prevBudgetOverview)...)
 	signals = append(signals, GoalSignals(goalList)...)
 	signals = append(signals, DebtSignals(debtList)...)
 	signals = append(signals, LiabilitySignals(health.Liabilities)...)
-	signals = append(signals, NetWorthSignals(health.MacroStats)...)
-	signals = append(signals, MonthlySummarySignal(health.MacroStats)...)
+	signals = append(signals, NetWorthSignals(summary.TotalIncome, summary.TotalExpense)...)
+	signals = append(signals, MonthlySummarySignal(summary.TotalIncome, summary.TotalExpense)...)
 	signals = append(signals, FixedVsVariableSignal(health.FixedVsVariable)...)
-	signals = append(signals, BorrowingPowerSignal(health.MacroStats, health.FixedVsVariable)...)
+	signals = append(signals, BorrowingPowerSignal(summary.TotalIncome, summary.TotalFixedIncome, health.FixedVsVariable)...)
 	signals = append(signals, TopSpendingCategorySignal(budgetOverview)...)
 	signals = append(signals, WantsRatioSignal(budgetOverview)...)
 

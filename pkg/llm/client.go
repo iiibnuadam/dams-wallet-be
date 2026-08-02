@@ -15,7 +15,11 @@ import (
 
 const defaultBaseURL = "https://api.deepseek.com/chat/completions"
 const defaultModel = "deepseek-chat" // DeepSeek's fast, cheap general-purpose model
-const defaultTimeout = 15 * time.Second
+// A single "Analisis dengan AI" call asks the model to narrate every
+// signal plus talking points in one non-streaming response, which can
+// take well over 15s depending on how many signals there are and how busy
+// the provider is -- 60s gives it realistic room without hanging forever.
+const defaultTimeout = 60 * time.Second
 
 type Config struct {
 	APIKey  string

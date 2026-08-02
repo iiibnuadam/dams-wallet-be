@@ -34,7 +34,7 @@ func Load() {
 
 		DeepSeekAPIKey:    getEnv("DEEPSEEK_API_KEY", ""),
 		LLMModel:          getEnv("LLM_MODEL", "deepseek-chat"),
-		LLMTimeoutSeconds: getEnvInt("LLM_TIMEOUT_SECONDS", 15),
+		LLMTimeoutSeconds: getEnvInt("LLM_TIMEOUT_SECONDS", 60),
 	}
 }
 
