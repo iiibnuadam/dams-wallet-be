@@ -140,11 +140,66 @@ func ConfirmTransaction(id string) error {
 	return updateTransaction(oid, bson.M{"status": "COMPLETED"})
 }
 
-func UpdateTransaction(id string, update bson.M) error {
+// ErrGoalLinkedTransaction is returned by UpdateTransaction when the target
+// transaction has a goalItem set -- those are edited from the Goal Detail
+// page's dedicated flow, not this generic endpoint.
+var ErrGoalLinkedTransaction = fmt.Errorf("goal-linked transactions can't be edited here")
+
+func UpdateTransaction(id string, req UpdateTransactionRequest) error {
 	oid, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return err
 	}
+
+	existing, err := findTransactionByID(oid)
+	if err != nil {
+		return err
+	}
+	if existing.GoalItem != nil {
+		return ErrGoalLinkedTransaction
+	}
+
+	walletID, err := primitive.ObjectIDFromHex(req.Wallet)
+	if err != nil {
+		return err
+	}
+
+	date, err := time.Parse(time.RFC3339, req.Date)
+	if err != nil {
+		date = time.Now()
+	}
+
+	update := bson.M{
+		"date":        date,
+		"amount":      req.Amount,
+		"description": req.Description,
+		"type":        req.Type,
+		"wallet":      walletID,
+	}
+
+	isTransfer := false
+	if req.TargetWallet != "" {
+		if twID, err := primitive.ObjectIDFromHex(req.TargetWallet); err == nil {
+			update["targetWallet"] = twID
+			isTransfer = true
+		}
+	}
+	if !isTransfer {
+		update["targetWallet"] = nil
+	}
+	update["isTransfer"] = isTransfer
+
+	if req.Category != "" {
+		if cID, err := primitive.ObjectIDFromHex(req.Category); err == nil {
+			update["category"] = cID
+		}
+	} else {
+		update["category"] = nil
+	}
+	if req.AdminFee > 0 {
+		update["adminFee"] = req.AdminFee
+	}
+
 	return updateTransaction(oid, update)
 }
 

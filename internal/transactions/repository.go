@@ -100,7 +100,9 @@ func buildQuery(f ListFilters) (bson.M, error) {
 			defer cancel()
 			cursor, err := db.Col("goalitems").Find(ctx, bson.M{"goalId": goid}, options.Find().SetProjection(bson.M{"_id": 1}))
 			if err == nil {
-				var items []struct{ ID primitive.ObjectID `bson:"_id"` }
+				var items []struct {
+					ID primitive.ObjectID `bson:"_id"`
+				}
 				cursor.All(ctx, &items)
 				itemIDs := make([]primitive.ObjectID, len(items))
 				for i, it := range items {
@@ -122,7 +124,9 @@ func buildQuery(f ListFilters) (bson.M, error) {
 			"username": bson.M{"$regex": fmt.Sprintf("^%s$", strings.ToUpper(f.View)), "$options": "i"},
 		}).Decode(&user)
 		if err == nil {
-			var wallets []struct{ ID primitive.ObjectID `bson:"_id"` }
+			var wallets []struct {
+				ID primitive.ObjectID `bson:"_id"`
+			}
 			wCursor, _ := db.Col("wallets").Find(ctx, bson.M{"owner": user.ID, "isDeleted": false}, options.Find().SetProjection(bson.M{"_id": 1}))
 			wCursor.All(ctx, &wallets)
 			wIDs := make([]primitive.ObjectID, len(wallets))
@@ -412,4 +416,15 @@ func updateTransaction(id primitive.ObjectID, update bson.M) error {
 	update["updatedAt"] = time.Now()
 	_, err := db.Col("transactions").UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": update})
 	return err
+}
+
+func findTransactionByID(id primitive.ObjectID) (*Transaction, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var tx Transaction
+	err := db.Col("transactions").FindOne(ctx, bson.M{"_id": id}).Decode(&tx)
+	if err != nil {
+		return nil, err
+	}
+	return &tx, nil
 }

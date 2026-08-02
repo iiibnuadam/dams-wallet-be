@@ -30,22 +30,22 @@ type Transaction struct {
 }
 
 type PopulatedTransaction struct {
-	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"_id"`
-	Date        time.Time           `bson:"date" json:"date"`
-	Amount      float64             `bson:"amount" json:"amount"`
-	Description string              `bson:"description,omitempty" json:"description,omitempty"`
-	Type        string              `bson:"type" json:"type"`
-	Wallet      *RefDoc             `bson:"wallet" json:"wallet"`
-	TargetWallet *RefDoc            `bson:"targetWallet,omitempty" json:"targetWallet,omitempty"`
-	Category    *RefDoc             `bson:"category,omitempty" json:"category,omitempty"`
-	GoalItem    *GoalItemRef        `bson:"goalItem,omitempty" json:"goalItem,omitempty"`
-	CreatedBy   string              `bson:"createdBy" json:"createdBy"`
-	IsDeleted   bool                `bson:"isDeleted" json:"isDeleted"`
-	Status      string              `bson:"status" json:"status"`
-	RoutineID   *primitive.ObjectID `bson:"routineId,omitempty" json:"routineId,omitempty"`
-	IsTransfer  bool                `bson:"isTransfer" json:"isTransfer"`
-	RelatedTransaction *RelatedTxnRef `bson:"relatedTransaction,omitempty" json:"relatedTransaction,omitempty"`
-	CreatedAt   time.Time           `bson:"createdAt" json:"createdAt"`
+	ID                 primitive.ObjectID  `bson:"_id,omitempty" json:"_id"`
+	Date               time.Time           `bson:"date" json:"date"`
+	Amount             float64             `bson:"amount" json:"amount"`
+	Description        string              `bson:"description,omitempty" json:"description,omitempty"`
+	Type               string              `bson:"type" json:"type"`
+	Wallet             *RefDoc             `bson:"wallet" json:"wallet"`
+	TargetWallet       *RefDoc             `bson:"targetWallet,omitempty" json:"targetWallet,omitempty"`
+	Category           *RefDoc             `bson:"category,omitempty" json:"category,omitempty"`
+	GoalItem           *GoalItemRef        `bson:"goalItem,omitempty" json:"goalItem,omitempty"`
+	CreatedBy          string              `bson:"createdBy" json:"createdBy"`
+	IsDeleted          bool                `bson:"isDeleted" json:"isDeleted"`
+	Status             string              `bson:"status" json:"status"`
+	RoutineID          *primitive.ObjectID `bson:"routineId,omitempty" json:"routineId,omitempty"`
+	IsTransfer         bool                `bson:"isTransfer" json:"isTransfer"`
+	RelatedTransaction *RelatedTxnRef      `bson:"relatedTransaction,omitempty" json:"relatedTransaction,omitempty"`
+	CreatedAt          time.Time           `bson:"createdAt" json:"createdAt"`
 }
 
 type RelatedTxnRef struct {
@@ -71,11 +71,11 @@ type CategoryBreakdown struct {
 }
 
 type Summary struct {
-	TotalIncome        float64             `json:"totalIncome"`
-	TotalExpense       float64             `json:"totalExpense"`
-	Net                float64             `json:"net"`
-	IncomeCategories   []CategoryBreakdown `json:"incomeCategories"`
-	ExpenseCategories  []CategoryBreakdown `json:"expenseCategories"`
+	TotalIncome       float64             `json:"totalIncome"`
+	TotalExpense      float64             `json:"totalExpense"`
+	Net               float64             `json:"net"`
+	IncomeCategories  []CategoryBreakdown `json:"incomeCategories"`
+	ExpenseCategories []CategoryBreakdown `json:"expenseCategories"`
 }
 
 type ListResult struct {
@@ -102,6 +102,21 @@ type CreateTransactionRequest struct {
 	GoalItem     string  `json:"goalItem,omitempty"`
 	PaymentPhase string  `json:"paymentPhase,omitempty"`
 	PartnerOwed  float64 `json:"partnerOwed,omitempty"`
+	AdminFee     float64 `json:"adminFee,omitempty"`
+}
+
+// UpdateTransactionRequest intentionally excludes GoalItem/PaymentPhase/
+// PartnerOwed -- goal-payment transactions are edited from the Goal Detail
+// page's dedicated flow, not this generic endpoint (see the goalItem guard
+// in UpdateTransaction).
+type UpdateTransactionRequest struct {
+	Date         string  `json:"date"`
+	Amount       float64 `json:"amount"`
+	Description  string  `json:"description"`
+	Type         string  `json:"type"`
+	Wallet       string  `json:"wallet"`
+	TargetWallet string  `json:"targetWallet,omitempty"`
+	Category     string  `json:"category,omitempty"`
 	AdminFee     float64 `json:"adminFee,omitempty"`
 }
 

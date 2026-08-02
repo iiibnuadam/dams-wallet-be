@@ -2,12 +2,12 @@ package transactions
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	mw "github.com/ibnuadam/dams-wallet-backend/pkg/middleware"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/response"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -52,7 +52,7 @@ func HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "invalid request body array")
 		return
 	}
-	
+
 	if len(reqs) == 0 {
 		response.Success(w, map[string]interface{}{"inserted": 0})
 		return
@@ -69,12 +69,21 @@ func HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
 
 func HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var update bson.M
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+	var req UpdateTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.BadRequest(w, "invalid request body")
 		return
 	}
-	if err := UpdateTransaction(id, update); err != nil {
+	if req.Amount <= 0 || req.Type == "" || req.Wallet == "" {
+		response.BadRequest(w, "amount, type, and wallet are required")
+		return
+	}
+
+	if err := UpdateTransaction(id, req); err != nil {
+		if errors.Is(err, ErrGoalLinkedTransaction) {
+			response.BadRequest(w, err.Error())
+			return
+		}
 		response.InternalError(w, err.Error())
 		return
 	}
