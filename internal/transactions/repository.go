@@ -281,7 +281,7 @@ func listTransactions(f ListFilters) (*ListResult, error) {
 	// Fetch paginated transactions with populate
 	lookupPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: query}},
-		{{Key: "$sort", Value: bson.D{{Key: "date", Value: -1}, {Key: "createdAt", Value: -1}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "date", Value: -1}, {Key: "createdAt", Value: -1}, {Key: "_id", Value: -1}}}},
 		{{Key: "$skip", Value: skip}},
 		{{Key: "$limit", Value: int64(limit)}},
 		{{Key: "$lookup", Value: bson.D{

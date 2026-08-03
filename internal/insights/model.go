@@ -50,7 +50,8 @@ type InsightsResponse struct {
 	GeneratedAt   time.Time      `json:"generatedAt"`
 	Signals       []Signal       `json:"signals"`
 	TalkingPoints []TalkingPoint `json:"talkingPoints"`
-	Source        string         `json:"source"` // "llm" | "rules_only"
+	Source        string         `json:"source"`   // "llm" | "rules_only"
+	Provider      string         `json:"provider"` // e.g. "deepseek", "huggingface", "" when rules-only
 	AnalyzedAt    *time.Time     `json:"analyzedAt,omitempty"`
 }
 
@@ -65,5 +66,6 @@ type SavedAnalysis struct {
 	Narratives    map[string]string  `bson:"narratives"`
 	TalkingPoints []TalkingPoint     `bson:"talkingPoints"`
 	Source        string             `bson:"source"`
+	Provider      string             `bson:"provider"`
 	AnalyzedAt    time.Time          `bson:"analyzedAt"`
 }

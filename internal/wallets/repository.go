@@ -34,7 +34,10 @@ func fetchWalletsWithBalance(filter bson.M) ([]WalletWithBalance, error) {
 						{Key: "$and", Value: bson.A{
 							bson.D{{Key: "$eq", Value: bson.A{"$isDeleted", false}}},
 							bson.D{{Key: "$ne", Value: bson.A{"$status", "PENDING"}}},
-							bson.D{{Key: "$eq", Value: bson.A{"$wallet", "$$walletId"}}},
+							bson.D{{Key: "$or", Value: bson.A{
+								bson.D{{Key: "$eq", Value: bson.A{"$wallet", "$$walletId"}}},
+								bson.D{{Key: "$eq", Value: bson.A{"$targetWallet", "$$walletId"}}},
+							}}},
 						}},
 					}},
 				}}},
@@ -48,10 +51,24 @@ func fetchWalletsWithBalance(filter bson.M) ([]WalletWithBalance, error) {
 						{Key: "input", Value: "$transactions"},
 						{Key: "as", Value: "txn"},
 						{Key: "in", Value: bson.D{
-							{Key: "$cond", Value: bson.A{
-								bson.D{{Key: "$eq", Value: bson.A{"$$txn.type", "EXPENSE"}}},
-								bson.D{{Key: "$multiply", Value: bson.A{"$$txn.amount", -1}}},
-								bson.D{{Key: "$multiply", Value: bson.A{"$$txn.amount", 1}}},
+							{Key: "$switch", Value: bson.D{
+								{Key: "branches", Value: bson.A{
+									bson.D{
+										{Key: "case", Value: bson.D{{Key: "$eq", Value: bson.A{"$$txn.type", "EXPENSE"}}}},
+										{Key: "then", Value: bson.D{{Key: "$multiply", Value: bson.A{"$$txn.amount", -1}}}},
+									},
+									bson.D{
+										// TRANSFER debits the source wallet and credits the target wallet -
+										// which side this wallet is on decides the sign.
+										{Key: "case", Value: bson.D{{Key: "$eq", Value: bson.A{"$$txn.type", "TRANSFER"}}}},
+										{Key: "then", Value: bson.D{{Key: "$cond", Value: bson.A{
+											bson.D{{Key: "$eq", Value: bson.A{"$$txn.wallet", "$_id"}}},
+											bson.D{{Key: "$multiply", Value: bson.A{"$$txn.amount", -1}}},
+											bson.D{{Key: "$multiply", Value: bson.A{"$$txn.amount", 1}}},
+										}}}},
+									},
+								}},
+								{Key: "default", Value: "$$txn.amount"},
 							}},
 						}},
 					}},

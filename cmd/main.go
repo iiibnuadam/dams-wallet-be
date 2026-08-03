@@ -31,11 +31,21 @@ func main() {
 	config.Load()
 	db.Connect() // Ensure connection is established at startup
 
-	insights.SetLLMClient(llm.New(llm.Config{
-		APIKey:  config.App.DeepSeekAPIKey,
-		Model:   config.App.LLMModel,
-		Timeout: time.Duration(config.App.LLMTimeoutSeconds) * time.Second,
-	}))
+	llmCfg := llm.Config{
+		Provider:        config.App.LLMProvider,
+		BaseURL:         config.App.LLMBaseURL,
+		Model:           config.App.LLMModel,
+		Timeout:         time.Duration(config.App.LLMTimeoutSeconds) * time.Second,
+		Temperature:     config.App.LLMTemperature,
+		TopP:            config.App.LLMTopP,
+		ReasoningEffort: config.App.LLMReasoningEffort,
+	}
+	if config.App.LLMProvider == "huggingface" {
+		llmCfg.APIKey = config.App.HuggingFaceAPIKey
+	} else {
+		llmCfg.APIKey = config.App.DeepSeekAPIKey
+	}
+	insights.SetLLMClient(llm.New(llmCfg))
 
 	r := router.Setup()
 

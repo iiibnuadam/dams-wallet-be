@@ -1,7 +1,11 @@
-// Package llm is a thin, generic wrapper around DeepSeek's OpenAI-compatible
-// chat completions API. A Client with no API key is "disabled" and every
-// method becomes a safe no-op -- callers never need to branch on
-// "is AI configured".
+// Package llm is a thin, generic wrapper around OpenAI-compatible
+// chat completions APIs. It supports two providers out of the box:
+//   - "deepseek"  -> https://api.deepseek.com/chat/completions
+//   - "huggingface" -> configurable Hugging Face Inference Endpoint
+//
+// A Client with no API key is "disabled" only when the chosen provider
+// requires a key and none is supplied. Every method is safe to call on a
+// disabled client -- callers never need to branch on "is AI configured".
 package llm
 
 import (
@@ -10,11 +14,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
-const defaultBaseURL = "https://api.deepseek.com/chat/completions"
-const defaultModel = "deepseek-chat" // DeepSeek's fast, cheap general-purpose model
+const (
+	defaultProvider = "deepseek"
+
+	deepseekBaseURL = "https://api.deepseek.com/chat/completions"
+	deepseekModel   = "deepseek-chat"
+
+	// Default Hugging Face endpoint supplied by the user.
+	huggingfaceBaseURL = "https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1/chat/completions"
+	huggingfaceModel   = "deepseek-ai/DeepSeek-V4-Flash-0731"
+)
+
 // A single "Analisis dengan AI" call asks the model to narrate every
 // signal plus talking points in one non-streaming response, which can
 // take well over 15s depending on how many signals there are and how busy
@@ -22,47 +36,100 @@ const defaultModel = "deepseek-chat" // DeepSeek's fast, cheap general-purpose m
 const defaultTimeout = 60 * time.Second
 
 type Config struct {
-	APIKey  string
-	Model   string
-	Timeout time.Duration
+	Provider        string        // "deepseek" or "huggingface"
+	BaseURL         string        // optional provider endpoint override
+	APIKey          string        // Bearer token; required for deepseek, optional for huggingface
+	Model           string        // model name; provider-specific defaults apply if empty
+	Timeout         time.Duration // request/ overall client timeout
+	Temperature     float64       // optional sampling temperature (huggingface)
+	TopP            float64       // optional nucleus sampling (huggingface)
+	ReasoningEffort string        // optional reasoning effort (huggingface)
 }
 
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
-	model      string
-	timeout    time.Duration
-	enabled    bool
+	httpClient      *http.Client
+	provider        string
+	baseURL         string
+	apiKey          string
+	model           string
+	timeout         time.Duration
+	enabled         bool
+	temperature     float64
+	topP            float64
+	reasoningEffort string
 }
 
-// New builds a Client. If cfg.APIKey is empty, the returned Client is
-// disabled and GenerateJSON always returns an error without making any
-// network call -- callers should check Enabled() first, or simply rely on
-// the error to trigger their own fallback path.
+// New builds a Client. If cfg.Provider is empty it defaults to "deepseek".
+// The DeepSeek provider requires an API key; if missing the client is
+// disabled. The Hugging Face provider is enabled even without an API key
+// because the supplied endpoint may be public/unauthenticated.
 func New(cfg Config) *Client {
-	if cfg.APIKey == "" {
-		return &Client{enabled: false}
+	provider := strings.ToLower(cfg.Provider)
+	if provider == "" {
+		provider = defaultProvider
 	}
-	model := cfg.Model
-	if model == "" {
-		model = defaultModel
-	}
+
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &Client{
-		httpClient: &http.Client{Timeout: timeout},
-		baseURL:    defaultBaseURL,
-		apiKey:     cfg.APIKey,
-		model:      model,
-		timeout:    timeout,
-		enabled:    true,
+
+	switch provider {
+	case "huggingface":
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = huggingfaceBaseURL
+		}
+		model := cfg.Model
+		if model == "" {
+			model = huggingfaceModel
+		}
+		return &Client{
+			httpClient:      &http.Client{Timeout: timeout},
+			provider:        provider,
+			baseURL:         baseURL,
+			apiKey:          cfg.APIKey,
+			model:           model,
+			timeout:         timeout,
+			enabled:         true,
+			temperature:     cfg.Temperature,
+			topP:            cfg.TopP,
+			reasoningEffort: cfg.ReasoningEffort,
+		}
+
+	case "deepseek":
+		fallthrough
+	default:
+		if cfg.APIKey == "" {
+			return &Client{provider: provider, enabled: false}
+		}
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = deepseekBaseURL
+		}
+		model := cfg.Model
+		if model == "" {
+			model = deepseekModel
+		}
+		return &Client{
+			httpClient: &http.Client{Timeout: timeout},
+			provider:   provider,
+			baseURL:    baseURL,
+			apiKey:     cfg.APIKey,
+			model:      model,
+			timeout:    timeout,
+			enabled:    true,
+		}
 	}
 }
 
 func (c *Client) Enabled() bool { return c.enabled }
+func (c *Client) Provider() string {
+	if c.provider == "" {
+		return defaultProvider
+	}
+	return c.provider
+}
 func (c *Client) Timeout() time.Duration {
 	if c.timeout <= 0 {
 		return defaultTimeout
@@ -75,14 +142,17 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
-type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	ResponseFormat responseFormat `json:"response_format"`
-}
-
 type responseFormat struct {
 	Type string `json:"type"`
+}
+
+type chatRequest struct {
+	Model           string          `json:"model"`
+	Messages        []chatMessage   `json:"messages"`
+	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
+	Temperature     float64         `json:"temperature,omitempty"`
+	TopP            float64         `json:"top_p,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
 type chatResponse struct {
@@ -96,34 +166,45 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// GenerateJSON sends a single, non-streaming chat completion request in
-// DeepSeek's JSON-object mode and returns the raw JSON text of the
-// response. The expected output shape must be described in systemPrompt --
-// DeepSeek's json_object mode guarantees syntactically valid JSON, not
-// conformance to an externally supplied schema.
+// GenerateJSON sends a single, non-streaming chat completion request and
+// returns the raw JSON text of the response. The expected output shape must
+// be described in systemPrompt -- neither provider guarantees conformance to
+// an externally supplied schema.
 func (c *Client) GenerateJSON(ctx context.Context, systemPrompt, userPrompt string) (json.RawMessage, error) {
 	if !c.enabled {
-		return nil, fmt.Errorf("llm: client is disabled (no API key configured)")
+		return nil, fmt.Errorf("llm: client is disabled (provider %q is not configured)", c.Provider())
 	}
 
-	reqBody, err := json.Marshal(chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		ResponseFormat: responseFormat{Type: "json_object"},
-	})
+	reqBody := chatRequest{
+		Model:    c.model,
+		Messages: []chatMessage{{Role: "system", Content: systemPrompt}, {Role: "user", Content: userPrompt}},
+	}
+
+	// Provider-specific request shape.
+	switch c.provider {
+	case "huggingface":
+		reqBody.Temperature = c.temperature
+		reqBody.TopP = c.topP
+		reqBody.ReasoningEffort = c.reasoningEffort
+	default:
+		// DeepSeek supports json_object mode which makes it far more likely
+		// the model returns syntactically valid JSON.
+		reqBody.ResponseFormat = &responseFormat{Type: "json_object"}
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("llm: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("llm: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -144,5 +225,19 @@ func (c *Client) GenerateJSON(ctx context.Context, systemPrompt, userPrompt stri
 	if len(parsed.Choices) == 0 {
 		return nil, fmt.Errorf("llm: response had no choices")
 	}
-	return json.RawMessage(parsed.Choices[0].Message.Content), nil
+
+	return json.RawMessage(cleanJSON(parsed.Choices[0].Message.Content)), nil
+}
+
+// cleanJSON strips surrounding whitespace and optional markdown code fences
+// so that a model returning ```json {...} ``` can still be parsed.
+func cleanJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```json")
+		s = strings.TrimPrefix(s, "```")
+		s = strings.TrimSuffix(s, "```")
+		s = strings.TrimSpace(s)
+	}
+	return s
 }

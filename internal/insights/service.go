@@ -121,6 +121,7 @@ func GetInsights(userID primitive.ObjectID, period, owner string) (*InsightsResp
 		}
 		resp.TalkingPoints = saved.TalkingPoints
 		resp.Source = saved.Source
+		resp.Provider = saved.Provider
 		analyzedAt := saved.AnalyzedAt
 		resp.AnalyzedAt = &analyzedAt
 	}
@@ -137,7 +138,7 @@ func AnalyzeInsights(userID primitive.ObjectID, period, owner string) (*Insights
 		period = time.Now().Format("2006-01")
 	}
 	if !llmClient.Enabled() {
-		return nil, fmt.Errorf("insights: AI analysis is not configured (no LLM API key set)")
+		return nil, fmt.Errorf("insights: AI analysis is not configured (provider %q unavailable)", llmClient.Provider())
 	}
 
 	signals, err := buildSignals(userID, period, owner)
@@ -158,11 +159,12 @@ func AnalyzeInsights(userID primitive.ObjectID, period, owner string) (*Insights
 		}
 	}
 	now := time.Now()
+	provider := llmClient.Provider()
 
 	if err := upsertSavedAnalysis(SavedAnalysis{
 		UserID: userID, Period: period, Owner: owner,
 		Narratives: narrativeMap, TalkingPoints: talkingPoints,
-		Source: "llm", AnalyzedAt: now,
+		Source: "llm", Provider: provider, AnalyzedAt: now,
 	}); err != nil {
 		log.Printf("insights: failed to save analysis (returning it anyway): %v", err)
 	}
@@ -173,6 +175,7 @@ func AnalyzeInsights(userID primitive.ObjectID, period, owner string) (*Insights
 		Signals:       signals,
 		TalkingPoints: talkingPoints,
 		Source:        "llm",
+		Provider:      provider,
 		AnalyzedAt:    &now,
 	}, nil
 }
