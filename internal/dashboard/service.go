@@ -215,9 +215,15 @@ func GetSummary(userID primitive.ObjectID, period string, startDateStr string, e
 		}
 	}
 
+	nwFilter := bson.M{}
+	for k, v := range filter {
+		nwFilter[k] = v
+	}
+	nwFilter["type"] = bson.M{"$ne": "LIABILITY"}
+
 	// Net worth: sum of all wallet current balances (initial + transactions)
 	netWorthAgg, err := db.Col("wallets").Aggregate(ctx, mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"owner": userID, "isDeleted": false}}},
+		{{Key: "$match", Value: nwFilter}},
 		{{Key: "$lookup", Value: bson.D{
 			{Key: "from", Value: "transactions"},
 			{Key: "let", Value: bson.D{{Key: "walletId", Value: "$_id"}}},

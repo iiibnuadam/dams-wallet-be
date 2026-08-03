@@ -82,29 +82,57 @@ func UpdateRoutine(id string, update bson.M) error {
 	oid, _ := primitive.ObjectIDFromHex(id)
 	update["updatedAt"] = time.Now()
 
-	if status, ok := update["status"].(string); ok && status == "ACTIVE" {
-		var r Routine
-		if err := db.Col("routines").FindOne(ctx, bson.M{"_id": oid}).Decode(&r); err == nil {
+	// The frontend form sends `startDate` when editing a routine's date.
+	if sdStr, ok := update["startDate"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, sdStr); err == nil {
+			update["startDate"] = t
+			// Explicitly setting the startDate also resets the nextRun basis
+			update["nextRun"] = t
+		}
+	}
+
+	// Just in case the frontend sends nextRun directly instead
+	if nrStr, ok := update["nextRun"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, nrStr); err == nil {
+			update["nextRun"] = t
+		}
+	}
+
+	var r Routine
+	if err := db.Col("routines").FindOne(ctx, bson.M{"_id": oid}).Decode(&r); err == nil {
+		finalStatus := r.Status
+		if status, ok := update["status"].(string); ok {
+			finalStatus = status
+		}
+
+		finalNextRun := r.NextRun
+		if nr, ok := update["nextRun"].(time.Time); ok {
+			finalNextRun = nr
+		}
+
+		finalFreq := r.Frequency
+		if freq, ok := update["frequency"].(string); ok {
+			finalFreq = freq
+		}
+
+		if finalStatus == "ACTIVE" {
 			now := time.Now()
-			// Only adjust if it's strictly before today's date (ignoring time)
-			// Actually just before now is fine for routines that run exactly on that time
-			if r.NextRun.Before(now) {
-				nextRun := r.NextRun
-				for nextRun.Before(now) {
-					switch r.Frequency {
+			if finalNextRun.Before(now) {
+				for finalNextRun.Before(now) {
+					switch finalFreq {
 					case "WEEKLY":
-						nextRun = nextRun.AddDate(0, 0, 7)
+						finalNextRun = finalNextRun.AddDate(0, 0, 7)
 					case "MONTHLY":
-						nextRun = nextRun.AddDate(0, 1, 0)
+						finalNextRun = finalNextRun.AddDate(0, 1, 0)
 					case "QUARTERLY":
-						nextRun = nextRun.AddDate(0, 3, 0)
+						finalNextRun = finalNextRun.AddDate(0, 3, 0)
 					case "YEARLY":
-						nextRun = nextRun.AddDate(1, 0, 0)
+						finalNextRun = finalNextRun.AddDate(1, 0, 0)
 					default:
-						nextRun = nextRun.AddDate(0, 1, 0)
+						finalNextRun = finalNextRun.AddDate(0, 1, 0)
 					}
 				}
-				update["nextRun"] = nextRun
+				update["nextRun"] = finalNextRun
 			}
 		}
 	}
