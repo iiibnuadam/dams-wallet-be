@@ -16,9 +16,18 @@ import (
 	"github.com/ibnuadam/dams-wallet-backend/internal/routines"
 	"github.com/ibnuadam/dams-wallet-backend/internal/transactions"
 	"github.com/ibnuadam/dams-wallet-backend/internal/wallets"
+	"github.com/ibnuadam/dams-wallet-backend/pkg/llm"
 	mw "github.com/ibnuadam/dams-wallet-backend/pkg/middleware"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/response"
 )
+
+// SetInsightsLLMClient wires the LLM client into the insights package. It exists so that
+// api/index.go (the Vercel entrypoint) never has to import an internal/ package directly -
+// Vercel's Go builder resolves that entrypoint under a synthetic path that fails Go's
+// internal-package visibility check even though the import is legal within the module.
+func SetInsightsLLMClient(c *llm.Client) {
+	insights.SetLLMClient(c)
+}
 
 func Setup() *chi.Mux {
 	r := chi.NewRouter()
@@ -50,7 +59,7 @@ func Setup() *chi.Mux {
 	// Auth routes (mixed public and protected)
 	r.Route("/api/auth", func(r chi.Router) {
 		auth.Routes(r) // Public: /login
-		
+
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
 			auth.ProtectedRoutes(r) // Protected: /profile

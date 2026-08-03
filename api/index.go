@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ibnuadam/dams-wallet-backend/config"
-	"github.com/ibnuadam/dams-wallet-backend/internal/insights"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/llm"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/router"
 )
@@ -30,7 +29,7 @@ func init() {
 	} else {
 		llmCfg.APIKey = config.App.DeepSeekAPIKey
 	}
-	insights.SetLLMClient(llm.New(llmCfg))
+	router.SetInsightsLLMClient(llm.New(llmCfg))
 
 	handler = router.Setup()
 }
