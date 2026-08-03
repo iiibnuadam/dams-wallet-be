@@ -3,6 +3,7 @@ package wallets
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	mw "github.com/ibnuadam/dams-wallet-backend/pkg/middleware"
@@ -41,6 +42,7 @@ func HandleCreate(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" || req.Type == "" {
 		response.BadRequest(w, "name and type are required")
 		return
@@ -61,6 +63,9 @@ func HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 		response.BadRequest(w, "invalid request body")
 		return
+	}
+	if name, ok := update["name"].(string); ok {
+		update["name"] = strings.TrimSpace(name)
 	}
 
 	wallet, err := UpdateWallet(id, update)
