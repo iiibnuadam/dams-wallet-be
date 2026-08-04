@@ -425,8 +425,8 @@ func GetBudgetOverview(period string) (*BudgetOverview, error) {
 	// Unbudgeted spending: total household spend minus whatever's covered
 	// by envelope items. Clamped at 0 as a defensive floor.
 	totalSpent := 0.0
-	for _, amt := range spendingByCatAll {
-		totalSpent += amt
+	for _, tx := range expTxs {
+		totalSpent += tx.Amount
 	}
 	unbudgetedSpent := math.Max(0, totalSpent-coveredSpent)
 
@@ -442,4 +442,35 @@ func GetBudgetOverview(period string) (*BudgetOverview, error) {
 		TotalWants:      totalWants,
 		DaysRemaining:   daysRemaining,
 	}, nil
+}
+
+// GetBudgetHistorical returns the budget overviews for the last N months.
+// It queries GetBudgetOverview for each month sequentially.
+func GetBudgetHistorical(months int) ([]*BudgetOverview, error) {
+	if months <= 0 {
+		months = 6 // Default
+	}
+	var results []*BudgetOverview
+	now := time.Now()
+
+	// Loop from (now - months + 1) to now.
+	// E.g. if months=6, it means we want 6 months including current month.
+	// So we start from i = months - 1 down to 0
+	for i := months - 1; i >= 0; i-- {
+		targetDate := now.AddDate(0, -i, 0)
+		period := targetDate.Format("2006-01")
+		
+		overview, err := GetBudgetOverview(period)
+		if err != nil {
+			// If no documents found, just append an empty structured overview
+			// or handle it gracefully. GetBudgetOverview actually returns default 
+			// 0s for missing budgets, but let's be safe.
+			overview = &BudgetOverview{
+				Period: period,
+			}
+		}
+		results = append(results, overview)
+	}
+
+	return results, nil
 }

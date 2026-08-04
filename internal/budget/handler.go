@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
-
 	"github.com/ibnuadam/dams-wallet-backend/pkg/response"
+	"strconv"
 )
 
 func HandleOverview(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +21,23 @@ func HandleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, overview)
+}
+
+func HandleHistorical(w http.ResponseWriter, r *http.Request) {
+	monthsStr := r.URL.Query().Get("months")
+	months := 6
+	if monthsStr != "" {
+		if m, err := strconv.Atoi(monthsStr); err == nil && m > 0 {
+			months = m
+		}
+	}
+
+	historical, err := GetBudgetHistorical(months)
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	response.Success(w, historical)
 }
 
 func HandleAvailableGroups(w http.ResponseWriter, r *http.Request) {
