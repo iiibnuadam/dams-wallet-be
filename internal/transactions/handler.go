@@ -1,13 +1,18 @@
 package transactions
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	mw "github.com/ibnuadam/dams-wallet-backend/pkg/middleware"
 	"github.com/ibnuadam/dams-wallet-backend/pkg/response"
+	"github.com/ibnuadam/dams-wallet-backend/internal/categories"
+	"github.com/ibnuadam/dams-wallet-backend/internal/wallets"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -106,4 +111,48 @@ func HandleConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]bool{"success": true})
+}
+
+type ParseTextRequest struct {
+	Text string `json:"text"`
+}
+
+func HandleParseText(w http.ResponseWriter, r *http.Request) {
+	var req ParseTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid JSON body")
+		return
+	}
+
+	if req.Text == "" {
+		response.BadRequest(w, "text cannot be empty")
+		return
+	}
+
+	ctx := r.Context()
+	
+	// Fetch context for LLM (categories and wallets)
+	cats, _ := categories.GetCategories("ALL")
+	catNames := make([]string, len(cats))
+	for i, c := range cats {
+		catNames[i] = c.Name
+	}
+
+	ws, _ := wallets.GetWallets("ALL")
+	walletNames := make([]string, len(ws))
+	for i, wlt := range ws {
+		walletNames[i] = wlt.Name
+	}
+
+	// Create context with timeout for AI processing (increased to 120s for slow LLMs)
+	aiCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	parsedResult, err := ParseTransactionFromText(aiCtx, req.Text, catNames, walletNames)
+	if err != nil {
+		response.InternalError(w, fmt.Sprintf("AI parsing failed: %v", err))
+		return
+	}
+
+	response.Success(w, parsedResult)
 }

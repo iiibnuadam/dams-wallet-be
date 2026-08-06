@@ -9,4 +9,5 @@ func Routes(r chi.Router) {
 	r.Put("/{id}", HandleUpdate)
 	r.Delete("/{id}", HandleDelete)
 	r.Patch("/{id}/confirm", HandleConfirm)
+	r.Post("/parse-text", HandleParseText)
 }

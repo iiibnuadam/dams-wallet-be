@@ -49,12 +49,14 @@ func GetGoals(owner string) ([]GoalWithStats, error) {
 			itemIDs[i] = it.ID
 		}
 
-		txAgg, _ := db.Col("transactions").Aggregate(ctx, mongo.Pipeline{
+		txAgg, err := db.Col("transactions").Aggregate(ctx, mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"goalItem": bson.M{"$in": itemIDs}, "isDeleted": false, "type": "EXPENSE"}}},
 			{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}}}},
 		})
 		var txResult []struct{ Total float64 `bson:"total"` }
-		txAgg.All(ctx, &txResult)
+		if err == nil {
+			txAgg.All(ctx, &txResult)
+		}
 		totalActual := 0.0
 		if len(txResult) > 0 {
 			totalActual = txResult[0].Total
@@ -140,8 +142,8 @@ func GetGoalByID(id string) (*GoalDetail, error) {
 	}
 
 	// Items with actual amounts
-	itemCursor, _ := db.Col("goalitems").Aggregate(ctx, mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"goalId": oid}}},
+	itemCursor, err := db.Col("goalitems").Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "goal", Value: id}}}},
 		{{Key: "$lookup", Value: bson.D{
 			{Key: "from", Value: "transactions"},
 			{Key: "let", Value: bson.D{{Key: "itemId", Value: "$_id"}}},
@@ -158,8 +160,13 @@ func GetGoalByID(id string) (*GoalDetail, error) {
 		}}},
 		{{Key: "$project", Value: bson.D{{Key: "txInfo", Value: 0}}}},
 	})
+	if err != nil {
+		return nil, err
+	}
 	var items []GoalItem
-	itemCursor.All(ctx, &items)
+	if err := itemCursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
 	if items == nil {
 		items = []GoalItem{}
 	}
@@ -175,8 +182,10 @@ func GetGoalByID(id string) (*GoalDetail, error) {
 			{{Key: "$match", Value: bson.M{"goalItem": bson.M{"$in": itemIDs}, "isDeleted": false}}},
 			{{Key: "$sort", Value: bson.D{{Key: "date", Value: -1}}}},
 		}
-		txCursor, _ := db.Col("transactions").Aggregate(ctx, pipeline)
-		txCursor.All(ctx, &history)
+		txCursor, err := db.Col("transactions").Aggregate(ctx, pipeline)
+		if err == nil {
+			txCursor.All(ctx, &history)
+		}
 		if history == nil {
 			history = []transactions.Transaction{}
 		}
